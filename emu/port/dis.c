@@ -1,4 +1,5 @@
 #include	"dat.h"
+#include	"daytime.h"
 #include	"fns.h"
 #include	<isa.h>
 #include	<interp.h>
@@ -31,6 +32,7 @@ uvlong	gcidlepass;
 uvlong	gcpartial;
 int keepbroken = 1;
 extern int	vflag;
+extern ulong	kerndate;
 static Prog*	proghash[64];
 
 static Progs*	delgrp(Prog*);
@@ -1091,8 +1093,12 @@ disinit(void *a)
 	if(waserror())
 		panic("disinit error: %r");
 
-	if(vflag)
+	if(vflag){
+		print("Eve User: %s\n", eve);
+		print("Build Time Since Epoch: %lud\n", kerndate);
+		print("Build Time: %s\n", text(gmt(kerndate)));
 		print("Initial Dis: \"%s\"\n", initmod);
+	}
 
 	fmtinstall('D', Dconv);
 

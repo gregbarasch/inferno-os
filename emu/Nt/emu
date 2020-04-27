@@ -81,6 +81,8 @@ port
 	sysfile
 	uqid
 
+	daytime
+
 code
 
 init

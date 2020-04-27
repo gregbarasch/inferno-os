@@ -80,6 +80,8 @@ port
 	sysfile
 	uqid
 
+	daytime
+
 code
 	int	dontcompile = 1;
 	int macjit = 1;
