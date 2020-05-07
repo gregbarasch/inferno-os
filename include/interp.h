@@ -249,7 +249,9 @@ struct Prog
 	char*		killstr;	/* kill string buffer when needed */
 	int		pid;		/* unique Prog id */
 	int		quanta;		/* time slice */
-	ulong	ticks;		/* time used */
+	ulong		ticks;		/* time used */
+	int		p;		/* priority */
+	int		nice;		/* How nice we are to other Progs */
 	int		flags;		/* error recovery flags */
 	Prog*		prev;
 	Prog*		next;

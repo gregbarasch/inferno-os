@@ -1692,6 +1692,7 @@ xec(Prog *p)
 		op = R.PC->op;
 		R.PC++;
 		optab[op]();
+		p->ticks++;
 	} while(--R.IC != 0);
 
 	p->R = R;

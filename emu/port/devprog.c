@@ -53,7 +53,9 @@ enum
 	CMkillgrp,
 	CMrestricted,
 	CMexceptions,
-	CMprivate
+	CMprivate,
+	CMnice,
+	CMpriority
 };
 
 static
@@ -63,6 +65,8 @@ Cmdtab progcmd[] = {
 	CMrestricted, "restricted", 1,
 	CMexceptions, "exceptions", 2,
 	CMprivate, "private",	1,
+	CMnice,	"nice",	2,
+	CMpriority, "priority", 2,
 };
 
 enum
@@ -854,14 +858,16 @@ progread(Chan *c, void *va, long n, vlong offset)
 		}
 		modstatus(&p->R, mbuf, sizeof(mbuf));
 		o = p->osenv;
-		snprint(up->genbuf, sizeof(up->genbuf), "%8d %8d %10s %s %10s %5dK %s",
+		snprint(up->genbuf, sizeof(up->genbuf), "%8d %8d %10s %s %10s %5dK %s %d %d",
 			p->pid,
 			p->group!=nil? p->group->id: 0,
 			o->user,
 			progtime(p->ticks, timebuf, timebuf+sizeof(timebuf)),
 			progstate[p->state],
 			progsize(p),
-			mbuf);
+			mbuf,
+			p->nice,
+			p->p);
 		release();
 		return readstr(offset, va, n, up->genbuf);
 	case Qwait:
@@ -1072,6 +1078,20 @@ progwrite(Chan *c, void *va, long n, vlong offset)
 			break;
 		case CMprivate:
 			p->group->flags |= Pprivatemem;
+			break;
+		case CMnice:
+			p->nice = strtoul(cb->f[1], nil, 10);
+			if(p != currun() && p->state == Pready){
+				delrunq(p);
+				addrun(p);
+			}
+			break;
+		case CMpriority:
+			p->p = strtoul(cb->f[1], nil, 10);
+			if(p != currun() && p->state == Pready){
+				delrunq(p);
+				addrun(p);
+			}
 			break;
 		}
 		poperror();

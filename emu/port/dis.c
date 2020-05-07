@@ -39,6 +39,9 @@ static Progs*	delgrp(Prog*);
 static void	addgrp(Prog*, Prog*);
 void	printgrp(Prog*, char*);
 
+#define	min(a,b)	((a) < (b) ? (a) : (b))
+#define	max(a,b)	((a) > (b) ? (a) : (b))
+
 static Prog**
 pidlook(int pid)
 {
@@ -113,6 +116,39 @@ execatidle(void)
 	delrunq(up->prog);
 }
 
+void
+calcp(Prog *p)
+{
+	int c, div;
+
+	/* 1/10s timeslice @ 60hz */
+	div = PQUANTA / 6;
+	c = min(255, p->ticks/div);
+	p->p = max(0, min(127, c/16 + 100 + p->nice));
+}
+
+void
+prioritize(Prog *p)
+{
+	Prog *curr;
+
+	if(isched.runhd == nil){
+		isched.runhd = p;
+		isched.runtl = p;
+		p->link = nil;
+	}else{
+		/* Never allow Prog to cut isched.runhd. Best case, second in line */
+		curr = isched.runhd;
+		while(curr->link != nil && p->p >= curr->link->p)
+			curr = curr->link;
+
+		p->link = curr->link;
+		curr->link = p;
+		if(curr == isched.runtl)
+			isched.runtl = p;
+	}
+}
+
 Prog*
 newprog(Prog *p, Modlink *m)
 {
@@ -161,6 +197,8 @@ newprog(Prog *p, Modlink *m)
 	n->osenv = (Osenv*)((uchar*)n + sizeof(Prog));
 	n->xec = xec;
 	n->quanta = PQUANTA;
+	n->ticks = 0;
+	n->nice = 0;
 	n->flags = 0;
 	n->exval = H;
 
@@ -694,12 +732,9 @@ addrun(Prog *p)
 	}
 	p->state = Pready;
 	p->link = nil;
-	if(isched.runhd == nil)
-		isched.runhd = p;
-	else
-		isched.runtl->link = p;
 
-	isched.runtl = p;
+	calcp(p);
+	prioritize(p);
 }
 
 Prog*
@@ -1065,8 +1100,11 @@ vmachine(void *a)
 			if(isched.runhd != isched.runtl) {
 				isched.runhd = r->link;
 				r->link = nil;
-				isched.runtl->link = r;
-				isched.runtl = r;
+
+				/* Occasional p recalc */
+				if(nrand(5) == 0)
+					calcp(r);
+				prioritize(r);
 			}
 			up->env = &up->defenv;
 		}
