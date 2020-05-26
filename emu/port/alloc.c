@@ -15,6 +15,8 @@ enum
 #define parent	u.s.bhp
 
 #define RESERVED	512*1024
+#define MINSLAB	32
+#define MAXSLAB	4096
 
 struct Pool
 {
@@ -31,6 +33,7 @@ struct Pool
 	Lock	l;
 	Bhdr*	root;
 	Bhdr*	chain;
+	Bhdr*	slab[8];	/* powers of 2 from MINSLAB - MAXSLAB. Singly linked lists, reuses Bhdr->fwd */
 	ulong	nalloc;
 	ulong	nfree;
 	int	nbrk;
@@ -157,6 +160,7 @@ void
 pooldel(Pool *p, Bhdr *t)
 {
 	Bhdr *s, *f, *rp, *q;
+	int ind;
 
 	if(t->parent == nil && p->root != t) {
 		t->prev->fwd = t->fwd;
@@ -236,7 +240,7 @@ pooldel(Pool *p, Bhdr *t)
 void
 pooladd(Pool *p, Bhdr *q)
 {
-	int size;
+	int size, ind;
 	Bhdr *tp, *t;
 
 	q->magic = MAGIC_F;
@@ -244,6 +248,16 @@ pooladd(Pool *p, Bhdr *q)
 	q->left = nil;
 	q->right = nil;
 	q->parent = nil;
+
+	if (is_pow_2(q->size)) {
+		ind = slab_index(q->size);
+		if (ind != -1) {
+			q->fwd = p->slab[ind];
+			p->slab[ind] = q;
+			return;
+		}
+	}
+
 	q->fwd = q;
 	q->prev = q;
 
@@ -282,7 +296,7 @@ static void*
 dopoolalloc(Pool *p, ulong asize, ulong pc)
 {
 	Bhdr *q, *t;
-	int alloc, ldr, ns, frag;
+	int alloc, ldr, ns, frag, ind;
 	int osize, size;
 
 	if(asize >= 1024*1024*1024)	/* for sanity and to avoid overflow */
@@ -290,9 +304,26 @@ dopoolalloc(Pool *p, ulong asize, ulong pc)
 	size = asize;
 	osize = size;
 	size = (size + BHDRSIZE + p->quanta) & ~(p->quanta);
+	if (size < MAXSLAB)
+		size = ceil_pow_2(size);
 
 	lock(&p->l);
 	p->nalloc++;
+
+	/* slab allocation */
+	ind = slab_index(size);
+	if (ind != -1 && p->slab[ind] != nil) {
+		q = p->slab[ind];
+		p->slab[ind] = q->fwd;
+		q->magic = MAGIC_A;
+		p->cursize += q->size;
+		if(p->cursize > p->hw)
+			p->hw = p->cursize;
+		unlock(&p->l);
+		if(p->monitor)
+			MM(p->pnum, pc, (ulong)B2D(q), size);
+		return B2D(q);
+	}
 
 	t = p->root;
 	q = nil;
@@ -465,25 +496,28 @@ poolfree(Pool *p, void *v)
 	lock(&p->l);
 	p->nfree++;
 	p->cursize -= b->size;
-	c = B2NB(b);
-	if(c->magic == MAGIC_F) {	/* Join forward */
-		if(c == ptr)
-			ptr = b;
-		pooldel(p, c);
-		c->magic = 0;
-		b->size += c->size;
-		B2T(b)->hdr = b;
-	}
 
-	c = B2PT(b)->hdr;
-	if(c->magic == MAGIC_F) {	/* Join backward */
-		if(b == ptr)
-			ptr = c;
-		pooldel(p, c);
-		b->magic = 0;
-		c->size += b->size;
-		b = c;
-		B2T(b)->hdr = b;
+	if (b->size > MAXSLAB) {
+		c = B2NB(b);
+		if (c->magic == MAGIC_F && c->size > MAXSLAB) {    /* Join forward */
+			if (c == ptr)
+				ptr = b;
+			pooldel(p, c);
+			c->magic = 0;
+			b->size += c->size;
+			B2T(b)->hdr = b;
+		}
+
+		c = B2PT(b)->hdr;
+		if (c->magic == MAGIC_F && c->size > MAXSLAB) {    /* Join backward */
+			if (b == ptr)
+				ptr = c;
+			pooldel(p, c);
+			b->magic = 0;
+			c->size += b->size;
+			b = c;
+			B2T(b)->hdr = b;
+		}
 	}
 	pooladd(p, b);
 	unlock(&p->l);
@@ -1031,4 +1065,40 @@ poolaudit(char*(*audit)(int, Bhdr *))
 		unlock(&p->l);
 	}
 	return r;
+}
+
+/* via https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2 */
+int
+ceil_pow_2(u32int n)
+{
+	n--;
+	n |= n >> 1;
+	n |= n >> 2;
+	n |= n >> 4;
+	n |= n >> 8;
+	n |= n >> 16;
+	return ++n;
+}
+
+/* via http://graphics.stanford.edu/~seander/bithacks.html#DetermineIfPowerOf2 */
+int
+is_pow_2(int n)
+{
+	return (n & (n - 1)) == 0;
+}
+
+/* -1 as error */
+int
+slab_index(int s)
+{
+	if (s > MAXSLAB)
+		return -1;
+	
+	if (s < MINSLAB)
+		return 0;
+
+	if (!is_pow_2(s))
+		s = ceil_pow_2(s);
+
+	return ((int)log2(s)) - 5; /* Min of 32 bytes */
 }
