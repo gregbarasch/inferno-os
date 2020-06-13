@@ -1126,16 +1126,22 @@ disinit(void *a)
 	Prog *p;
 	Osenv *o;
 	Module *root;
+	Tm* gmtTm;
+	char *gmtTxt;
 	char *initmod = a;
 
 	if(waserror())
 		panic("disinit error: %r");
 
 	if(vflag){
+		gmtTm = gmt(kerndate);
+		gmtTxt = text(gmtTm);
 		print("Eve User: %s\n", eve);
 		print("Build Time Since Epoch: %lud\n", kerndate);
-		print("Build Time: %s\n", text(gmt(kerndate)));
+		print("Build Time: %s\n", gmtTxt);
 		print("Initial Dis: \"%s\"\n", initmod);
+		free(gmtTxt);
+		free(gmtTm);
 	}
 
 	fmtinstall('D', Dconv);
