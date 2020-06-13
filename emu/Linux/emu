@@ -6,6 +6,7 @@ dev
 	pipe
 	prog
 	prof
+	raidz
 	srv
 	dup
 	ssl
